@@ -147,13 +147,13 @@ function buildDescription (warning) {
   return [
     warning.content || '',
     '',
-    'Serie : ' + warning.seriesName,
-    warning.locality ? 'Localite : ' + warning.locality : '',
-    warning.generalArea ? 'Zone(s) : ' + warning.generalArea : '',
+    'Series / Serie : ' + warning.seriesName,
+    warning.locality ? 'Location / Localite : ' + warning.locality : '',
+    warning.generalArea ? 'Area(s) / Zone(s) : ' + warning.generalArea : '',
     'Type : ' + (warning.hazardDetail || warning.hazardGeneral || ''),
-    'Publie le : ' + (warning.publicationDate || '?'),
-    'Valide du ' + (warning.valid_from || '?') + ' au ' + (warning.valid_until || '?'),
-    warning.noGeometry ? '(Avis sans position geographique — affiche au centre de la France)' : '',
+    'Published / Publie le : ' + (warning.publicationDate || '?'),
+    'Valid / Valide : ' + (warning.valid_from || '?') + ' - ' + (warning.valid_until || '?'),
+    warning.noGeometry ? '(No geographic position / Sans position geographique — displayed at France center)' : '',
     warning.portalUrl ? 'Source : ' + warning.portalUrl : ''
   ].filter(Boolean).join('\n')
 }
@@ -164,7 +164,6 @@ function featureToWarning (feature) {
   const dateRange = extractDateRange(parts)
   const geomWGS84 = convertGeometry(feature.geometry)
 
-  // Géométrie nulle → note positionnée au centre de la France
   const noGeometry = !geomWGS84
   let resourceType = 'notes'
   if (geomWGS84 && (geomWGS84.type === 'Polygon' || geomWGS84.type === 'MultiPolygon')) {
@@ -211,14 +210,14 @@ function fetchLayer (layerName) {
     const req = https.get(url, { timeout: 20000 }, function (res) {
       let body = ''
       if (res.statusCode !== 200) {
-        return reject(new Error('HTTP ' + res.statusCode + ' pour ' + layerName))
+        return reject(new Error('HTTP ' + res.statusCode + ' for ' + layerName))
       }
       res.on('data', function (chunk) { body += chunk })
       res.on('end', function () {
         try {
           const geojson = JSON.parse(body)
           if (!Array.isArray(geojson.features)) {
-            return reject(new Error('Reponse inattendue pour ' + layerName))
+            return reject(new Error('Unexpected response for ' + layerName))
           }
           resolve(
             geojson.features
@@ -226,7 +225,7 @@ function fetchLayer (layerName) {
               .map(featureToWarning)
           )
         } catch (e) {
-          reject(new Error('JSON invalide pour ' + layerName + ': ' + e.message))
+          reject(new Error('Invalid JSON for ' + layerName + ': ' + e.message))
         }
       })
     })
@@ -246,42 +245,44 @@ module.exports = function (app) {
 
   plugin.id = 'signalk-avurnav'
   plugin.name = 'AVURNAV - PING'
-  plugin.description = 'Publie les avertissements nautiques PING en vigueur (notes, regions, notifications)'
+  plugin.description = 'Publishes active PING nautical warnings as notes, regions and distance-based notifications'
 
   plugin.schema = {
     type: 'object',
     properties: {
       series: {
         type: 'array',
-        title: 'Series PING a surveiller',
-        description: 'Selectionner les series souhaitees',
+        title: 'PING series to monitor / Series PING a surveiller',
+        description: 'Select the desired series / Selectionner les series souhaitees',
         items: { type: 'string', enum: ALL_SERIES },
         uniqueItems: true,
         default: DEFAULT_SERIES
       },
       language: {
         type: 'string',
-        title: 'Langue des messages',
+        title: 'Message language / Langue des messages',
+        description: 'Language for warning text content / Langue du texte des avertissements',
         enum: ['fr', 'en'],
+        enumNames: ['Francais / French', 'Anglais / English'],
         default: 'fr'
       },
       pollInterval: {
         type: 'number',
-        title: 'Intervalle de mise a jour (secondes)',
+        title: 'Update interval (s) / Intervalle de mise a jour (s)',
         default: 3600,
         minimum: 60
       },
       distanceWarn: {
         type: 'number',
-        title: 'Seuil WARN - orange (NM)',
-        description: 'En dessous de cette distance : notification warn (+ son)',
+        title: 'WARN threshold (NM) / Seuil WARN (NM)',
+        description: 'Below this distance: warn notification + sound / En dessous : notification warn + son',
         default: 10,
         minimum: 1
       },
       distanceAlarm: {
         type: 'number',
-        title: 'Seuil ALARM - rouge (NM)',
-        description: 'En dessous de cette distance : notification alarm (+ son)',
+        title: 'ALARM threshold (NM) / Seuil ALARM (NM)',
+        description: 'Below this distance: alarm notification + sound / En dessous : notification alarm + son',
         default: 1,
         minimum: 0.1
       }
@@ -290,7 +291,7 @@ module.exports = function (app) {
 
   plugin.start = function (options) {
     const opts = normalizeOptions(options)
-    app.debug('Demarrage — series: ' + opts.series.join(', ') + ', warn: ' + opts.distanceWarn + ' NM, alarm: ' + opts.distanceAlarm + ' NM, poll: ' + opts.pollInterval + 's')
+    app.debug('Start — series: ' + opts.series.join(', ') + ', warn: ' + opts.distanceWarn + ' NM, alarm: ' + opts.distanceAlarm + ' NM, poll: ' + opts.pollInterval + 's')
 
     positionUnsub = app.streambundle
       .getSelfStream('navigation.position')
@@ -308,20 +309,18 @@ module.exports = function (app) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
     if (positionUnsub) { positionUnsub(); positionUnsub = null }
 
-    // Effacer toutes les notifications actives
     activeNotifications.forEach(function (path) {
       app.handleMessage(plugin.id, { updates: [{ values: [{ path: path, value: null }] }] })
     })
     activeNotifications.clear()
 
-    // Supprimer toutes les ressources publiées du serveur SK
     const regionUUIDs = [...publishedRegions.keys()]
     const noteUUIDs = [...publishedNotes.keys()]
     cleanupResources(regionUUIDs, noteUUIDs)
     publishedRegions.clear()
     publishedNotes.clear()
 
-    app.debug('Plugin arrete — ' + regionUUIDs.length + ' region(s) et ' + noteUUIDs.length + ' note(s) supprimees')
+    app.debug('Stopped — ' + regionUUIDs.length + ' region(s) and ' + noteUUIDs.length + ' note(s) removed')
   }
 
   function normalizeOptions (options) {
@@ -337,14 +336,14 @@ module.exports = function (app) {
   plugin.registerWithRouter = function () {}
 
   async function runPoll (opts) {
-    app.debug('Poll WFS PING...')
+    app.debug('Polling WFS PING...')
     let allWarnings = []
 
     for (const seriesName of opts.series) {
       const layerName = seriesToLayerName(seriesName, opts.language)
       try {
         const list = await fetchLayer(layerName)
-        app.debug('  ' + seriesName + ': ' + list.length + ' avertissement(s)')
+        app.debug('  ' + seriesName + ': ' + list.length + ' warning(s)')
         allWarnings = allWarnings.concat(list)
       } catch (err) {
         app.debug('  ' + seriesName + ': ' + err.message)
@@ -356,7 +355,7 @@ module.exports = function (app) {
       if (!byId.has(w.id)) byId.set(w.id, w)
     }
     const warnings = [...byId.values()]
-    app.debug('Total: ' + warnings.length + ' avertissement(s) uniques')
+    app.debug('Total: ' + warnings.length + ' unique warning(s)')
 
     const validRegionUUIDs = new Set()
     const validNoteUUIDs = new Set()
@@ -383,7 +382,7 @@ module.exports = function (app) {
     const staleNotes = [...publishedNotes.keys()].filter(function (u) { return !validNoteUUIDs.has(u) })
 
     if (staleRegions.length + staleNotes.length > 0) {
-      app.debug('Nettoyage: ' + staleRegions.length + ' region(s), ' + staleNotes.length + ' note(s)')
+      app.debug('Cleanup: ' + staleRegions.length + ' region(s), ' + staleNotes.length + ' note(s)')
       staleRegions.forEach(function (u) {
         const warningId = publishedRegions.get(u)
         if (warningId) clearNotification(notificationPath(warningId))
@@ -421,7 +420,7 @@ module.exports = function (app) {
     try {
       await app.resourcesApi.setResource('regions', uuid, resource)
     } catch (err) {
-      app.error('Erreur region ' + uuid + ': ' + err.message)
+      app.error('Region error ' + uuid + ': ' + err.message)
     }
   }
 
@@ -439,7 +438,7 @@ module.exports = function (app) {
     try {
       await app.resourcesApi.setResource('notes', noteUUID, resource)
     } catch (err) {
-      app.error('Erreur note ' + noteUUID + ': ' + err.message)
+      app.error('Note error ' + noteUUID + ': ' + err.message)
     }
   }
 
@@ -451,14 +450,11 @@ module.exports = function (app) {
     const path = notificationPath(warningId)
     if (!vesselPosition) return
 
-    // Les avis sans géométrie (positionnés au centre de la France) ne génèrent pas de notification
     if (warning.noGeometry) return
 
     const dist = haversineNM(vesselPosition.lat, vesselPosition.lon, warning.latitude, warning.longitude)
     app.debug(warning.label + ': ' + dist.toFixed(1) + ' NM')
 
-    // Deux niveaux : alarm (très proche) et warn (proche)
-    // Au-delà de distanceWarn : pas de notification
     let state, method
     if (dist <= opts.distanceAlarm) {
       state = 'alarm'
@@ -478,7 +474,7 @@ module.exports = function (app) {
           value: {
             state: state,
             method: method,
-            message: '[' + state.toUpperCase() + '] ' + warning.label + ' a ' + dist.toFixed(1) + ' NM - ' + warning.title,
+            message: '[' + state.toUpperCase() + '] ' + warning.label + ' at ' + dist.toFixed(1) + ' NM - ' + warning.title,
             data: {
               id: warning.id,
               number: warning.number,
@@ -509,11 +505,11 @@ module.exports = function (app) {
   function cleanupResources (regionUUIDs, noteUUIDs) {
     regionUUIDs.forEach(function (uuid) {
       app.resourcesApi.deleteResource('regions', uuid)
-        .catch(function (err) { app.debug('Erreur suppression region ' + uuid + ': ' + err.message) })
+        .catch(function (err) { app.debug('Region delete error ' + uuid + ': ' + err.message) })
     })
     noteUUIDs.forEach(function (uuid) {
       app.resourcesApi.deleteResource('notes', uuid)
-        .catch(function (err) { app.debug('Erreur suppression note ' + uuid + ': ' + err.message) })
+        .catch(function (err) { app.debug('Note delete error ' + uuid + ': ' + err.message) })
     })
   }
 
