@@ -1,77 +1,77 @@
 # signalk-avurnav
 
-Plugin SignalK qui publie les **avertissements nautiques français** (AVURNAV, AVINAV, NAVAREA) en vigueur, issus de la plateforme [PING](https://portail.ping-info-nautique.fr/) du SHOM.
+SignalK plugin that publishes active French nautical warnings (AVURNAV, AVINAV, NAVAREA) from the [PING](https://portail.ping-info-nautique.fr/) platform operated by SHOM.
 
-## Fonctionnalités
+## Features
 
-- Interroge l'API WFS de PING pour toutes les séries disponibles (Cherbourg, Brest, Toulon, Fort-de-France, Cayenne, NAVAREA II…)
-- Publie chaque avertissement comme **région** (polygones) ou **note** (points, lignes) dans SignalK → affichage natif dans FreeboardSK
-- Les avertissements sans géométrie (ex. bulletins de synthèse) sont publiés comme notes positionnées au centre de la France
-- Émet des notifications `alert` selon la position du bateau :
-  - **Polygones** : alerte dès que le bateau **entre dans la zone**
-  - **Points / Lignes** : alerte quand le bateau est **dans le rayon configuré** (défaut : 1 NM)
-- Chaque note contient un **lien direct** vers la fiche de l'avertissement sur le portail PING
-- Nettoyage automatique des ressources et notifications obsolètes entre chaque poll
+- Fetches warnings from the PING WFS API for all available series (Cherbourg, Brest, Toulon, Fort-de-France, Cayenne, NAVAREA II…)
+- Publishes each warning as a SignalK **region** (polygons) or **note** (points, lines) → native display in FreeboardSK
+- Warnings without geometry (e.g. summary bulletins) are published as notes positioned at the center of France
+- Emits `alert` notifications based on vessel position:
+  - **Polygons**: alert when the vessel **enters the zone** (point-in-polygon)
+  - **Points / Lines**: alert when the vessel is **within the configured radius** (default: 1 NM)
+- Each note includes a **direct link** to the warning page on the PING portal
+- Automatic cleanup of obsolete resources and notifications between polls
 
-## Prérequis
+## Requirements
 
 - SignalK Server v2+
-- Plugin `@signalk/resources-provider` (inclus par défaut dans SignalK) actif
-- Position du bateau disponible dans SignalK (`navigation.position`)
+- `@signalk/resources-provider` plugin active (included by default in SignalK)
+- Vessel position available in SignalK (`navigation.position`)
 
 ## Installation
 
-Depuis l'interface d'administration SignalK → Plugin Store, rechercher `signalk-avurnav`.
+From the SignalK admin UI → Plugin Store, search for `signalk-avurnav`.
 
-Ou manuellement :
+Or manually:
 ```bash
 npm install signalk-avurnav
 ```
 
 ## Configuration
 
-| Paramètre | Défaut | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `series` | AVURNAV CHERBOURG, BREST, TOULON | Séries à interroger (liste à cocher) |
-| `language` | `fr` | Langue des messages (`fr` ou `en`) |
-| `pollInterval` | `3600` s | Intervalle de rafraîchissement |
-| `distanceAlert` | `1` NM | Rayon d'alerte pour les points/lignes |
+| `series` | AVURNAV CHERBOURG, BREST, TOULON | Series to fetch (checklist) |
+| `language` | `fr` | Message language (`fr` or `en`) |
+| `pollInterval` | `3600` s | Refresh interval |
+| `distanceAlert` | `1` NM | Alert radius for points/lines |
 
-### Séries disponibles
+### Available series
 
-| Façade | Séries |
+| Area | Series |
 |---|---|
-| Mondial | `NAVAREA II` |
-| Manche / Mer du Nord | `AVURNAV CHERBOURG`, `AVURNAV LOCAL CHERBOURG`, `AVIRADE CHERBOURG`, `AVINAV CHERBOURG` |
-| Atlantique | `AVURNAV BREST`, `AVURNAV LOCAL BREST`, `AVIRADE BREST`, `AVINAV BREST` |
-| Méditerranée | `AVURNAV TOULON`, `AVURNAV LOCAL TOULON`, `AVINAV TOULON` |
-| Antilles | `AVURNAV FORT DE FRANCE`, `AVURNAV LOCAL FORT DE FRANCE`, `AVINAV FORT DE FRANCE` |
-| Guyane | `AVURNAV CAYENNE`, `AVURNAV LOCAL CAYENNE`, `AVINAV CAYENNE` |
+| Worldwide | `NAVAREA II` |
+| English Channel / North Sea | `AVURNAV CHERBOURG`, `AVURNAV LOCAL CHERBOURG`, `AVIRADE CHERBOURG`, `AVINAV CHERBOURG` |
+| Atlantic | `AVURNAV BREST`, `AVURNAV LOCAL BREST`, `AVIRADE BREST`, `AVINAV BREST` |
+| Mediterranean | `AVURNAV TOULON`, `AVURNAV LOCAL TOULON`, `AVINAV TOULON` |
+| Caribbean | `AVURNAV FORT DE FRANCE`, `AVURNAV LOCAL FORT DE FRANCE`, `AVINAV FORT DE FRANCE` |
+| French Guiana | `AVURNAV CAYENNE`, `AVURNAV LOCAL CAYENNE`, `AVINAV CAYENNE` |
 
-## Ressources publiées
+## Published resources
 
-### Régions (`/resources/regions`)
-Les avertissements à géométrie **polygone** sont publiés comme régions SignalK. Visibles dans FreeboardSK sous le layer "Regions". Une notification `alert` est déclenchée dès que le bateau entre à l'intérieur de la zone.
+### Regions (`/resources/regions`)
+Warnings with **polygon** geometry are published as SignalK regions, visible in FreeboardSK under the "Regions" layer. An `alert` notification is triggered when the vessel enters the zone.
 
 ### Notes (`/resources/notes`)
-Les avertissements à géométrie **point** ou **ligne** (et ceux sans géométrie) sont publiés comme notes SignalK. Visibles dans FreeboardSK sous le layer "Notes". Chaque note contient le texte complet de l'avertissement et un lien vers sa fiche sur le portail PING. Une notification `alert` est déclenchée quand le bateau est dans le rayon `distanceAlert`.
+Warnings with **point** or **line** geometry (and those without geometry) are published as SignalK notes, visible in FreeboardSK under the "Notes" layer. Each note contains the full warning text and a link to the PING portal. An `alert` notification is triggered when the vessel is within `distanceAlert`.
 
 ### Notifications
 ```
 notifications.navigation.avurnav.<id>
 ```
 
-Structure de chaque notification :
+Notification structure:
 ```json
 {
   "state": "alert",
   "method": ["visual", "sound"],
-  "message": "[ALERT] AVURNAV TOULON 244/2026 — inside zone — Exercice de tir",
+  "message": "[ALERT] AVURNAV TOULON 244/2026 — inside zone — Firing exercise",
   "data": {
     "id": "825f3ba4-...",
     "number": "244/2026",
     "series": "AVURNAV TOULON",
-    "title": "Exercice de tir — PROVENCE",
+    "title": "Firing exercise — PROVENCE",
     "latitude": 43.2,
     "longitude": 5.5,
     "insideZone": true,
@@ -82,10 +82,10 @@ Structure de chaque notification :
 }
 ```
 
-## Source de données
+## Data source
 
-[PING](https://portail.ping-info-nautique.fr/) — Plateforme nationale de l'information nautique, co-éditée par le [SHOM](https://www.shom.fr/) et la DGAMPA. Données librement accessibles via l'API WFS OGC.
+[PING](https://portail.ping-info-nautique.fr/) — France's national nautical information platform, co-published by [SHOM](https://www.shom.fr/) and DGAMPA. Data freely available via OGC WFS API.
 
-## Licence
+## License
 
 MIT
