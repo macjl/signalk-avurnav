@@ -1,0 +1,34 @@
+{
+  "name": "signalk-avurnav",
+  "version": "0.1.0",
+  "description": "Publishes French nautical warnings (AVURNAV/AVINAV) from the PING platform as SignalK notes, regions and distance-based notifications",
+  "main": "index.js",
+  "keywords": [
+    "signalk-node-server-plugin",
+    "avurnav",
+    "avinav",
+    "ping",
+    "navigational-warnings",
+    "france",
+    "marine",
+    "premar",
+    "freeboard-sk"
+  ],
+  "author": "Jean-Laurent Girod",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/macjl/signalk-avurnav.git"
+  },
+  "bugs": {
+    "url": "https://github.com/macjl/signalk-avurnav/issues"
+  },
+  "homepage": "https://github.com/macjl/signalk-avurnav#readme",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}

@@ -1,0 +1,22 @@
+name: Publish to npm
+on:
+  release:
+    types: [created]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Sync version with tag
+        run: |
+          TAG=${GITHUB_REF_NAME#v}
+          CURRENT=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$CURRENT" ]; then npm version "$TAG" --no-git-tag-version; fi
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.npm_token }}
