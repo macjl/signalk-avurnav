@@ -224,8 +224,6 @@ function fetchLayer (layerName) {
             geojson.features
               .filter(function (f) { return f.properties && f.properties.warningid })
               .map(featureToWarning)
-            // Plus de filtre sur latitude/longitude : les avis sans géométrie
-            // sont maintenant positionnés au centre de la France
           )
         } catch (e) {
           reject(new Error('JSON invalide pour ' + layerName + ': ' + e.message))
@@ -273,13 +271,6 @@ module.exports = function (app) {
         default: 3600,
         minimum: 60
       },
-      maxDistance: {
-        type: 'number',
-        title: 'Distance maximale pour notification (NM)',
-        description: 'Au-dela, la ressource reste publiee sur la carte mais sans notification',
-        default: 100,
-        minimum: 1
-      },
       distanceWarn: {
         type: 'number',
         title: 'Seuil WARN - orange (NM)',
@@ -299,7 +290,7 @@ module.exports = function (app) {
 
   plugin.start = function (options) {
     const opts = normalizeOptions(options)
-    app.debug('Demarrage — series: ' + opts.series.join(', ') + ', maxDist: ' + opts.maxDistance + ' NM, poll: ' + opts.pollInterval + 's')
+    app.debug('Demarrage — series: ' + opts.series.join(', ') + ', warn: ' + opts.distanceWarn + ' NM, alarm: ' + opts.distanceAlarm + ' NM, poll: ' + opts.pollInterval + 's')
 
     positionUnsub = app.streambundle
       .getSelfStream('navigation.position')
@@ -338,7 +329,6 @@ module.exports = function (app) {
       series: Array.isArray(options.series) && options.series.length > 0 ? options.series : DEFAULT_SERIES,
       language: options.language || 'fr',
       pollInterval: options.pollInterval || 3600,
-      maxDistance: options.maxDistance || 100,
       distanceWarn: options.distanceWarn !== undefined ? options.distanceWarn : 10,
       distanceAlarm: options.distanceAlarm !== undefined ? options.distanceAlarm : 1
     }
@@ -467,12 +457,8 @@ module.exports = function (app) {
     const dist = haversineNM(vesselPosition.lat, vesselPosition.lon, warning.latitude, warning.longitude)
     app.debug(warning.label + ': ' + dist.toFixed(1) + ' NM')
 
-    if (dist > opts.maxDistance) {
-      if (activeNotifications.has(path)) clearNotification(path)
-      return
-    }
-
-    // Deux niveaux seulement : alarm (très proche) et warn (proche)
+    // Deux niveaux : alarm (très proche) et warn (proche)
+    // Au-delà de distanceWarn : pas de notification
     let state, method
     if (dist <= opts.distanceAlarm) {
       state = 'alarm'
@@ -481,7 +467,6 @@ module.exports = function (app) {
       state = 'warn'
       method = ['visual', 'sound']
     } else {
-      // Entre distanceWarn et maxDistance : pas de notification
       if (activeNotifications.has(path)) clearNotification(path)
       return
     }
