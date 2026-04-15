@@ -7,10 +7,9 @@ Plugin SignalK qui publie les **avertissements nautiques français** (AVURNAV, A
 - Interroge l'API WFS de PING pour toutes les séries disponibles (Cherbourg, Brest, Toulon, Fort-de-France, Cayenne, NAVAREA II…)
 - Publie chaque avertissement comme **région** (polygones) ou **note** (points, lignes) dans SignalK → affichage natif dans FreeboardSK
 - Les avertissements sans géométrie (ex. bulletins de synthèse) sont publiés comme notes positionnées au centre de la France
-- Émet des **notifications** avec niveau selon la distance du bateau :
-  - 🔴 `alarm` (+ son) : en dessous du seuil alarm (défaut : 1 NM)
-  - 🟠 `warn` (+ son) : en dessous du seuil warn (défaut : 10 NM)
-  - Hors seuil warn : ressource sur la carte uniquement, sans notification
+- Émet des notifications `alert` selon la position du bateau :
+  - **Polygones** : alerte dès que le bateau **entre dans la zone**
+  - **Points / Lignes** : alerte quand le bateau est **dans le rayon configuré** (défaut : 1 NM)
 - Chaque note contient un **lien direct** vers la fiche de l'avertissement sur le portail PING
 - Nettoyage automatique des ressources et notifications obsolètes entre chaque poll
 
@@ -36,9 +35,7 @@ npm install signalk-avurnav
 | `series` | AVURNAV CHERBOURG, BREST, TOULON | Séries à interroger (liste à cocher) |
 | `language` | `fr` | Langue des messages (`fr` ou `en`) |
 | `pollInterval` | `3600` s | Intervalle de rafraîchissement |
-| `maxDistance` | `100` NM | Distance max pour notification |
-| `distanceWarn` | `10` NM | Seuil passage en `warn` |
-| `distanceAlarm` | `1` NM | Seuil passage en `alarm` |
+| `distanceAlert` | `1` NM | Rayon d'alerte pour les points/lignes |
 
 ### Séries disponibles
 
@@ -54,10 +51,10 @@ npm install signalk-avurnav
 ## Ressources publiées
 
 ### Régions (`/resources/regions`)
-Les avertissements à géométrie **polygone** sont publiés comme régions SignalK. Visibles dans FreeboardSK sous le layer "Regions".
+Les avertissements à géométrie **polygone** sont publiés comme régions SignalK. Visibles dans FreeboardSK sous le layer "Regions". Une notification `alert` est déclenchée dès que le bateau entre à l'intérieur de la zone.
 
 ### Notes (`/resources/notes`)
-Les avertissements à géométrie **point** ou **ligne** (et ceux sans géométrie) sont publiés comme notes SignalK. Visibles dans FreeboardSK sous le layer "Notes". Chaque note contient le texte complet de l'avertissement et un lien vers sa fiche sur le portail PING.
+Les avertissements à géométrie **point** ou **ligne** (et ceux sans géométrie) sont publiés comme notes SignalK. Visibles dans FreeboardSK sous le layer "Notes". Chaque note contient le texte complet de l'avertissement et un lien vers sa fiche sur le portail PING. Une notification `alert` est déclenchée quand le bateau est dans le rayon `distanceAlert`.
 
 ### Notifications
 ```
@@ -67,9 +64,9 @@ notifications.navigation.avurnav.<id>
 Structure de chaque notification :
 ```json
 {
-  "state": "alarm | warn",
+  "state": "alert",
   "method": ["visual", "sound"],
-  "message": "[ALARM] AVURNAV TOULON 244/2026 à 0.8 NM — Exercice de tir",
+  "message": "[ALERT] AVURNAV TOULON 244/2026 — inside zone — Exercice de tir",
   "data": {
     "id": "825f3ba4-...",
     "number": "244/2026",
@@ -77,7 +74,7 @@ Structure de chaque notification :
     "title": "Exercice de tir — PROVENCE",
     "latitude": 43.2,
     "longitude": 5.5,
-    "distanceNM": 0.8,
+    "insideZone": true,
     "url": "https://portail.ping-info-nautique.fr/avurnav-notice/825f3ba4-...",
     "valid_from": "2026-04-15 04:00:00",
     "valid_until": "2026-04-15 13:59:00"

@@ -90,6 +90,47 @@ function haversineNM (lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+// Ray casting : teste si le point (lon, lat) est à l'intérieur d'un anneau de polygone
+// ring : tableau de [lon, lat]
+function pointInRing (lon, lat, ring) {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0]; const yi = ring[i][1]
+    const xj = ring[j][0]; const yj = ring[j][1]
+    if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+// Teste si le point est à l'intérieur d'un Polygon ou MultiPolygon (WGS84)
+// Tient compte des trous (anneaux intérieurs) : exclu si dans un trou
+function pointInGeometry (lon, lat, geom) {
+  if (!geom) return false
+
+  if (geom.type === 'Polygon') {
+    // Premier anneau = contour extérieur, suivants = trous
+    if (!pointInRing(lon, lat, geom.coordinates[0])) return false
+    for (let i = 1; i < geom.coordinates.length; i++) {
+      if (pointInRing(lon, lat, geom.coordinates[i])) return false
+    }
+    return true
+  }
+
+  if (geom.type === 'MultiPolygon') {
+    return geom.coordinates.some(function (poly) {
+      if (!pointInRing(lon, lat, poly[0])) return false
+      for (let i = 1; i < poly.length; i++) {
+        if (pointInRing(lon, lat, poly[i])) return false
+      }
+      return true
+    })
+  }
+
+  return false
+}
+
 function deterministicUUID (str) {
   const hex = crypto.createHash('sha1').update(str).digest('hex').slice(0, 32)
   const timeHiAndVersion = '4' + hex.slice(13, 16)
@@ -272,17 +313,10 @@ module.exports = function (app) {
         default: 3600,
         minimum: 60
       },
-      distanceWarn: {
+      distanceAlert: {
         type: 'number',
-        title: 'WARN threshold (NM) / Seuil WARN (NM)',
-        description: 'Below this distance: warn notification + sound / En dessous : notification warn + son',
-        default: 10,
-        minimum: 1
-      },
-      distanceAlarm: {
-        type: 'number',
-        title: 'ALARM threshold (NM) / Seuil ALARM (NM)',
-        description: 'Below this distance: alarm notification + sound / En dessous : notification alarm + son',
+        title: 'Alert distance for points (NM) / Distance d\'alerte pour les points (NM)',
+        description: 'Points/lines: alert when vessel is within this distance. Polygons: alert when vessel enters the zone. / Points/lignes : alerte quand le navire est dans ce rayon. Polygones : alerte a l\'entree dans la zone.',
         default: 1,
         minimum: 0.1
       }
@@ -291,7 +325,7 @@ module.exports = function (app) {
 
   plugin.start = function (options) {
     const opts = normalizeOptions(options)
-    app.debug('Start — series: ' + opts.series.join(', ') + ', warn: ' + opts.distanceWarn + ' NM, alarm: ' + opts.distanceAlarm + ' NM, poll: ' + opts.pollInterval + 's')
+    app.debug('Start — series: ' + opts.series.join(', ') + ', distanceAlert: ' + opts.distanceAlert + ' NM, poll: ' + opts.pollInterval + 's')
 
     positionUnsub = app.streambundle
       .getSelfStream('navigation.position')
@@ -328,8 +362,7 @@ module.exports = function (app) {
       series: Array.isArray(options.series) && options.series.length > 0 ? options.series : DEFAULT_SERIES,
       language: options.language || 'fr',
       pollInterval: options.pollInterval || 3600,
-      distanceWarn: options.distanceWarn !== undefined ? options.distanceWarn : 10,
-      distanceAlarm: options.distanceAlarm !== undefined ? options.distanceAlarm : 1
+      distanceAlert: options.distanceAlert !== undefined ? options.distanceAlert : 1
     }
   }
 
@@ -449,32 +482,40 @@ module.exports = function (app) {
   function updateNotification (warningId, warning, opts) {
     const path = notificationPath(warningId)
     if (!vesselPosition) return
-
     if (warning.noGeometry) return
 
-    const dist = haversineNM(vesselPosition.lat, vesselPosition.lon, warning.latitude, warning.longitude)
-    app.debug(warning.label + ': ' + dist.toFixed(1) + ' NM')
+    const lon = vesselPosition.lon
+    const lat = vesselPosition.lat
+    let triggered = false
 
-    let state, method
-    if (dist <= opts.distanceAlarm) {
-      state = 'alarm'
-      method = ['visual', 'sound']
-    } else if (dist <= opts.distanceWarn) {
-      state = 'warn'
-      method = ['visual', 'sound']
+    if (warning.resourceType === 'regions') {
+      // Polygone : alerte si le bateau est à l'intérieur de la zone
+      triggered = pointInGeometry(lon, lat, warning.geometry)
+      app.debug(warning.label + ': ' + (triggered ? 'INSIDE zone' : 'outside zone'))
     } else {
+      // Point / ligne : alerte si distance < distanceAlert
+      const dist = haversineNM(lat, lon, warning.latitude, warning.longitude)
+      triggered = dist <= opts.distanceAlert
+      app.debug(warning.label + ': ' + dist.toFixed(1) + ' NM' + (triggered ? ' [ALERT]' : ''))
+    }
+
+    if (!triggered) {
       if (activeNotifications.has(path)) clearNotification(path)
       return
     }
+
+    const distInfo = warning.resourceType === 'regions'
+      ? 'inside zone'
+      : haversineNM(lat, lon, warning.latitude, warning.longitude).toFixed(1) + ' NM'
 
     app.handleMessage(plugin.id, {
       updates: [{
         values: [{
           path: path,
           value: {
-            state: state,
-            method: method,
-            message: '[' + state.toUpperCase() + '] ' + warning.label + ' at ' + dist.toFixed(1) + ' NM - ' + warning.title,
+            state: 'alert',
+            method: ['visual', 'sound'],
+            message: '[ALERT] ' + warning.label + ' — ' + distInfo + ' — ' + warning.title,
             data: {
               id: warning.id,
               number: warning.number,
@@ -482,7 +523,7 @@ module.exports = function (app) {
               title: warning.title,
               latitude: warning.latitude,
               longitude: warning.longitude,
-              distanceNM: parseFloat(dist.toFixed(2)),
+              insideZone: warning.resourceType === 'regions',
               url: warning.portalUrl,
               valid_from: warning.valid_from,
               valid_until: warning.valid_until,
