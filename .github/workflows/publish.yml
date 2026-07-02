@@ -1,22 +1,80 @@
-name: Publish to npm
+name: Publish npm package
+
 on:
   release:
-    types: [created]
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-      - name: Sync version with tag
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build --if-present
+
+      - name: Test
+        run: npm test
+
+      - name: Check package contents
+        run: npm pack --dry-run
+
+      - name: Read package metadata
+        id: package
         run: |
-          TAG=${GITHUB_REF_NAME#v}
-          CURRENT=$(node -p "require('./package.json').version")
-          if [ "$TAG" != "$CURRENT" ]; then npm version "$TAG" --no-git-tag-version; fi
-      - name: Publish
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.npm_token }}
+          echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release tag
+        if: github.event_name == 'release'
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#v}"
+          if [ "$version" != "${{ steps.package.outputs.version }}" ]; then
+            echo "Release tag $tag does not match package version ${{ steps.package.outputs.version }}"
+            exit 1
+          fi
+
+      - name: Check npm version
+        id: npm
+        run: |
+          if npm view "${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        if: steps.npm.outputs.published != 'true'
+        run: |
+          version="${{ steps.package.outputs.version }}"
+          if [[ "$version" == *alpha* ]]; then
+            npm publish --provenance --access public --tag alpha
+          elif [[ "$version" == *beta* ]]; then
+            npm publish --provenance --access public --tag beta
+          elif [[ "$version" == *rc* ]]; then
+            npm publish --provenance --access public --tag rc
+          else
+            npm publish --provenance --access public
+          fi
